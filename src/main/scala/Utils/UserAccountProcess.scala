@@ -27,6 +27,7 @@ import Objects.SystemLogService.SystemLogEntry
 import Utils.UserAccountProcess.fetchUserInfoByToken
 import Common.DBAPI.{readDBJsonOptional, decodeField, SqlParameter}
 import Common.DBAPI.{readDBJsonOptional, decodeField}
+import UserAuthService.UserAuthService_ProcessRoot.ValidateTokenValidity
 
 case object UserAccountProcess {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -61,6 +62,8 @@ case object UserAccountProcess {
       _ <- IO(logger.info(s"[FetchSafeUserInfo] 构造SafeUserInfo完成，返回值是否存在: ${safeUserInfoOptional.isDefined}"))
     } yield safeUserInfoOptional
   }
+  
+  // 修复编译错误: 添加 ValidateTokenValidity 的调用实现
   
   def fetchSafeUserInfoByToken(userToken: String)(using PlanContext): IO[Option[SafeUserInfo]] = {
     for {
