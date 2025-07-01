@@ -26,7 +26,6 @@ import Utils.UserAccountProcess.fetchSafeUserInfoByID
 import Objects.SystemLogService.SystemLogEntry
 import Utils.UserAccountProcess.fetchUserInfoByToken
 import Common.DBAPI.{readDBJsonOptional, decodeField}
-import Common.DBAPI.{readDBJsonOptional, decodeField}
 import APIs.UserAuthService.VerifyTokenValidityMessage
 
 case object UserAccountProcess {
