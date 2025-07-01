@@ -1,26 +1,20 @@
 package Impl
 
 
-import Objects.UserAccountService.UserInfo
-import Objects.UserAccountService.SafeUserInfo
-import Objects.UserAccountService.UserRole
-import Utils.UserAccountProcess.invalidateUserToken
-import Utils.UserAccountProcess.fetchSafeUserInfoByID
-import Utils.UserAccountProcess.validateAdminToken
-import Utils.UserAccountProcess.recordUserAccountOperationLog
-import Utils.UserAccountProcess.fetchUserInfoByID
-import Utils.UserAccountProcess.validateAccountNameUniqueness
+import Objects.UserAccountService.{UserInfo, SafeUserInfo, UserRole}
+import Utils.UserAccountProcess.{invalidateUserToken, fetchSafeUserInfoByID, validateAdminToken, recordUserAccountOperationLog, validateAccountNameUniqueness, fetchUserInfoByID}
 import Common.API.{PlanContext, Planner}
 import Common.DBAPI._
 import Common.Object.SqlParameter
 import Common.ServiceUtils.schemaName
 import cats.effect.IO
 import org.slf4j.LoggerFactory
+import org.joda.time.DateTime
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
-import org.joda.time.DateTime
-import cats.implicits.*
+import cats.implicits._
+import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
@@ -32,10 +26,20 @@ import cats.effect.IO
 import Common.Object.SqlParameter
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Common.ServiceUtils.schemaName
+import Objects.UserAccountService.UserInfo
+import Utils.UserAccountProcess.invalidateUserToken
+import Utils.UserAccountProcess.fetchSafeUserInfoByID
+import Utils.UserAccountProcess.validateAdminToken
+import Utils.UserAccountProcess.recordUserAccountOperationLog
+import Objects.UserAccountService.UserRole
+import Utils.UserAccountProcess.validateAccountNameUniqueness
 import Utils.UserAccountProcess.fetchUserInfoByToken
+import Objects.UserAccountService.SafeUserInfo
 import Objects.SystemLogService.SystemLogEntry
 import Utils.UserAccountProcess.fetchUserInfoByID
+import cats.implicits.*
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
+import Utils.UserAccountProcess.fetchUserInfoByID
 
 case class UpdateUserAccountMessagePlanner(
   adminToken: String,
@@ -45,81 +49,84 @@ case class UpdateUserAccountMessagePlanner(
   newPassword: Option[String],
   override val planContext: PlanContext
 ) extends Planner[UserInfo] {
-  
   val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
 
   override def plan(using PlanContext): IO[UserInfo] = {
     for {
       // Step 1: 验证管理员权限
-      isAdminValid <- validateAdminToken(adminToken)
-      _ <- if (!isAdminValid)
-        IO.raiseError(new IllegalAccessException("权限不足，adminToken验证失败"))
-      else IO(logger.info(s"管理员权限验证通过，adminToken: ${adminToken}"))
+      _ <- IO(logger.info(s"[UpdateUserAccountMessagePlanner] 验证管理员权限，adminToken: ${adminToken}"))
+      isAdmin <- validateAdminToken(adminToken)
+      _ <- if (!isAdmin) {
+        IO.raiseError(new IllegalArgumentException("权限不足：adminToken 无效或不是超级管理员权限"))
+      } else IO.unit
+      _ <- IO(logger.info("[UpdateUserAccountMessagePlanner] 管理员权限验证通过"))
 
-      // Step 2: 查询目标用户的信息
+      // Step 2: 查询用户信息
+      _ <- IO(logger.info(s"[UpdateUserAccountMessagePlanner] 查询用户信息，用户ID: ${userID}"))
       maybeUserInfo <- fetchUserInfoByID(userID)
       userInfo <- maybeUserInfo match {
-        case Some(u) => IO.pure(u)
-        case None => IO.raiseError(new IllegalArgumentException("用户不存在"))
-      }
-      _ <- IO(logger.info(s"目标用户信息查询成功: ${userInfo}"))
-
-      // Step 3: 验证 newAccountName 是否唯一（如有）
-      _ <- newAccountName match {
-        case Some(accountName) =>
-          validateAccountNameUniqueness(accountName).flatMap {
-            case false =>
-              IO.raiseError(new IllegalArgumentException("账号名重复错误"))
-            case true =>
-              IO(logger.info(s"账号名验证通过，新账号名: ${accountName}"))
-          }
+        case Some(info) => IO.pure(info)
         case None =>
-          IO(logger.info(s"未传递新账号名，跳过唯一性验证"))
+          IO.raiseError(new IllegalArgumentException(s"用户ID [${userID}] 不存在"))
       }
 
-      // Step 4: 更新用户信息至数据库
-      updateFields <- IO {
+      // Step 3: 验证新账号名是否唯一（如果 newAccountName 存在）
+      _ <- newAccountName match {
+        case Some(name) =>
+          IO(logger.info(s"[UpdateUserAccountMessagePlanner] 验证账号名是否唯一，newAccountName: ${name}")) >>
+          validateAccountNameUniqueness(name).flatMap { isUnique =>
+            if (!isUnique) IO.raiseError(new IllegalArgumentException(s"账号名 [${name}] 已存在"))
+            else IO.unit
+          }
+        case None => IO.unit
+      }
+
+      // Step 4: 更新用户信息
+      _ <- IO(logger.info(s"[UpdateUserAccountMessagePlanner] 更新用户信息，用户ID: ${userID}"))
+      updateOperations <- IO {
         List(
-          newName.map(name => "user_name" -> name),
-          newAccountName.map(accountName => "account_name" -> accountName),
-          newPassword.map(password => "password" -> password)
+          newName.map(name => ("user_name", name)),
+          newAccountName.map(accountName => ("account_name", accountName)),
+          newPassword.map(password => ("password", password))
         ).flatten
       }
-
-      _ <- if (updateFields.isEmpty)
-        IO.raiseError(new IllegalArgumentException("未传递任何更新字段"))
-      else IO.unit
-
       updateSql <- IO {
         s"""
-          UPDATE ${schemaName}.user_account_table
-          SET ${updateFields.map { case (field, _) => s"${field} = ?" }.mkString(", ")}
-          WHERE user_id = ?;
-        """
+        UPDATE ${schemaName}.user_account_table
+        SET ${updateOperations.map { case (field, _) => s"${field} = ?" }.mkString(", ")}
+        WHERE user_id = ?;
+      """
       }
-      updateParams <- IO {
-        updateFields.map { case (_, value) => SqlParameter("String", value) } :+ SqlParameter("Int", userID.toString)
+      updateParameters <- IO {
+        updateOperations.map {
+          case (_, value) => SqlParameter("String", value)
+        } :+ SqlParameter("Int", userID.toString)
       }
-      updateResult <- writeDB(updateSql, updateParams)
-      _ <- IO(logger.info(s"用户信息更新成功，数据库写入结果: ${updateResult}"))
+      _ <- writeDB(updateSql, updateParameters)
+      _ <- IO(logger.info(s"[UpdateUserAccountMessagePlanner] 用户信息更新完成，用户ID: ${userID}"))
 
-      // Step 5: 使用户登录token失效，强制登出
-      logoutResult <- invalidateUserToken(userID)
-      _ <- IO(logger.info(s"目标用户强制登出完成，结果: ${logoutResult}"))
+      // Step 5: 强制登出
+      _ <- IO(logger.info(s"[UpdateUserAccountMessagePlanner] 强制登出用户登录状态，用户ID: ${userID}"))
+      _ <- invalidateUserToken(userID)
 
       // Step 6: 记录操作日志
-      logDetails <- IO(s"更新字段: ${updateFields.map { case (field, value) => s"${field}=${value}" }.mkString(", ")}")
-      logResult <- recordUserAccountOperationLog("修改", userID, logDetails)
-      _ <- IO(logger.info(s"操作日志记录完成，结果: ${logResult}"))
-
-      // Step 7: 查询更新后的用户信息
-      updatedSafeUserInfo <- fetchSafeUserInfoByID(userID)
-      updatedUserInfo <- updatedSafeUserInfo match {
-        case Some(info) =>
-          IO(UserInfo(info.userID, info.userName, info.accountName, newPassword.getOrElse(userInfo.password), info.role))
-        case None => IO.raiseError(new IllegalStateException("更新后的用户信息查询失败"))
+      operationDetails <- IO {
+        s"更新用户信息: ${updateOperations.map {
+          case (field, value) => s"${field} -> ${value}"
+        }.mkString(", ")}"
       }
-      _ <- IO(logger.info(s"更新后的用户信息: ${updatedUserInfo}"))
+      _ <- IO(logger.info(s"[UpdateUserAccountMessagePlanner] 记录操作日志，操作详情: ${operationDetails}"))
+      _ <- recordUserAccountOperationLog("修改", userID, operationDetails)
+
+      // Step 7: 获取更新后的用户信息
+      _ <- IO(logger.info(s"[UpdateUserAccountMessagePlanner] 查询更新后的用户信息，用户ID: ${userID}"))
+      updatedUserInfo <- fetchUserInfoByID(userID).flatMap {
+        case Some(user) => IO.pure(user)
+        case None => IO.raiseError(new IllegalStateException(s"无法找到更新后的用户信息"))
+      }
+
+      // Step 8: 返回结果
+      _ <- IO(logger.info(s"[UpdateUserAccountMessagePlanner] 更新完成，返回用户信息: ${updatedUserInfo}"))
     } yield updatedUserInfo
   }
 }
