@@ -1,19 +1,11 @@
 package Impl
 
 
-import Objects.UserAccountService.SafeUserInfo
-import Utils.UserAccountProcess.fetchSafeUserInfoByID
-import Objects.UserAccountService.UserRole
 import Common.API.{PlanContext, Planner}
-import Common.DBAPI._
-import Common.Object.SqlParameter
-import Common.ServiceUtils.schemaName
+import Utils.UserAccountProcess.fetchSafeUserInfoByID
+import Objects.UserAccountService.SafeUserInfo
 import cats.effect.IO
 import org.slf4j.LoggerFactory
-import org.joda.time.DateTime
-import io.circe.syntax._
-import io.circe.generic.auto._
-import cats.implicits._
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
@@ -27,41 +19,44 @@ import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Common.ServiceUtils.schemaName
 import Objects.UserAccountService.UserRole
 import io.circe._
+import io.circe.syntax._
+import io.circe.generic.auto._
+import org.joda.time.DateTime
 import cats.implicits.*
+import Common.DBAPI._
+import Common.Object.SqlParameter
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
+import Common.ServiceUtils.schemaName
+import Objects.UserAccountService.UserRole
 
 case class QuerySafeUserInfoByUserIDMessagePlanner(
-                                                   userID: Int,
-                                                   override val planContext: PlanContext
-                                                 ) extends Planner[Option[SafeUserInfo]] {
-
-  private val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
+                                                    userID: Int,
+                                                    override val planContext: PlanContext
+                                                  ) extends Planner[Option[SafeUserInfo]] {
+  val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
 
   override def plan(using PlanContext): IO[Option[SafeUserInfo]] = {
     for {
-      // Step 1: Log the start of the process
-      _ <- IO(logger.info(s"[QuerySafeUserInfoByUserID] 开始查询安全用户信息，用户ID: ${userID}"))
-
-      // Step 2: Attempt to fetch SafeUserInfo from database
-      safeUserInfoOpt <- fetchSafeUserInfoByID(userID)
-      _ <- IO(logger.info(
-        s"[QuerySafeUserInfoByUserID] 查询数据库结束，用户ID=${userID} " +
-          s"结果是否存在: ${safeUserInfoOpt.isDefined}"
-      ))
-
-      // Step 3: Handle the None case and log appropriately
-      result <- safeUserInfoOpt match {
+      // Step 1: Log the process of fetching SafeUserInfo
+      _ <- IO(logger.info(s"[QuerySafeUserInfoByUserID] 开始查询安全用户信息，用户ID为: ${userID}"))
+      
+      // Step 2: Fetch Safe User Info from `fetchSafeUserInfoByID`
+      safeUserInfoOption <- fetchSafeUserInfoByID(userID)
+      _ <- IO(logger.info(s"[QuerySafeUserInfoByUserID] 查询完成，是否找到用户信息: ${safeUserInfoOption.isDefined}"))
+      
+      // Step 3: Check the result and log the output
+      returnValue <- safeUserInfoOption match {
         case Some(safeUserInfo) =>
           IO {
-            logger.info(s"[QuerySafeUserInfoByUserID] 查询成功，返回的SafeUserInfo: ${safeUserInfo.asJson.noSpaces}")
+            logger.info(s"[QuerySafeUserInfoByUserID] 用户信息找到，用户ID: ${safeUserInfo.userID}, 用户名: ${safeUserInfo.userName}")
             Some(safeUserInfo)
           }
         case None =>
           IO {
-            logger.warn(s"[QuerySafeUserInfoByUserID] 用户ID=${userID} 不存在，返回None")
+            logger.warn(s"[QuerySafeUserInfoByUserID] 查询失败，用户ID: ${userID}不存在。")
             None
           }
       }
-    } yield result
+    } yield returnValue
   }
 }
