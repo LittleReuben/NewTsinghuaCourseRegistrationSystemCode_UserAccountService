@@ -28,6 +28,7 @@ import Utils.UserAccountProcess.fetchUserInfoByToken
 import Common.DBAPI.{readDBJsonOptional, decodeField, SqlParameter}
 import Common.DBAPI.{readDBJsonOptional, decodeField}
 import UserAuthService.UserAuthService_ProcessRoot.ValidateTokenValidity
+import APIs.UserAuthService.ValidateTokenValidityMessage
 
 case object UserAccountProcess {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -69,7 +70,7 @@ case object UserAccountProcess {
     for {
       // Step1: Validate token validity
       _ <- IO(logger.info(s"开始验证用户token的有效性: ${userToken}"))
-      isValidToken <- ValidateTokenValidity(userToken).send
+      isValidToken <- ValidateTokenValidityMessage(userToken).send
       _ <- if (!isValidToken) {
         IO(logger.info(s"用户token无效: ${userToken}")) >>
         IO.pure(None)
