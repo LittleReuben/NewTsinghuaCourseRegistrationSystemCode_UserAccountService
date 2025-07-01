@@ -2,19 +2,19 @@ package Impl
 
 
 import Objects.UserAccountService.SafeUserInfo
-import Objects.UserAccountService.UserRole
 import Utils.UserAccountProcess.fetchSafeUserInfoByID
+import Objects.UserAccountService.UserRole
 import Common.API.{PlanContext, Planner}
 import Common.DBAPI._
 import Common.Object.SqlParameter
 import Common.ServiceUtils.schemaName
+import cats.effect.IO
+import org.slf4j.LoggerFactory
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
 import org.joda.time.DateTime
-import cats.effect.IO
-import org.slf4j.LoggerFactory
-import cats.implicits._
+import cats.implicits.*
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
@@ -27,66 +27,49 @@ import Common.Object.SqlParameter
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Common.ServiceUtils.schemaName
 import Objects.UserAccountService.UserRole
-import Objects.UserAccountService.{SafeUserInfo, UserRole}
-import cats.implicits.*
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 
 case class QuerySafeUserInfoByUserIDListMessagePlanner(
-  userIDList: List[Int],
-  override val planContext: PlanContext
+    userIDList: List[Int],
+    override val planContext: PlanContext
 ) extends Planner[List[SafeUserInfo]] {
   val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
 
-  override def plan(using PlanContext): IO[List[SafeUserInfo]] = {
+  override def plan(using planContext: PlanContext): IO[List[SafeUserInfo]] = {
     for {
-      // Step 1: Log the input userID list
-      _ <- IO(logger.info(s"[QuerySafeUserInfo] 查询的用户ID列表: ${userIDList.mkString(", ")}"))
-
-      // Step 1.1: Fetch user information for each userID
-      safeUserInfoListOptional <- fetchAllSafeUserInfo(userIDList)
-      _ <- IO(logger.info(s"[QuerySafeUserInfo] 成功获取批量用户信息，结果数量: ${safeUserInfoListOptional.size}"))
-
-      // Step 2: Sort results based on the input userID list order
-      sortedSafeUserInfoList <- IO {
-        sortResults(safeUserInfoListOptional, userIDList)
-      }
-      _ <- IO(logger.info(s"[QuerySafeUserInfo] 用户信息排序完成，返回结果的顺序与输入顺序一致"))
-    } yield sortedSafeUserInfoList
+      // Step 1: Log the input list and start the fetching process
+      _ <- IO(logger.info(s"开始查询用户安全信息，输入的userIDList长度为: ${userIDList.length}"))
+      
+      // Step 2: Fetch safe user info for each userID in the input list, using the helper method
+      userInfoResults <- fetchSafeUserInfoList(userIDList)
+      
+      // Step 3: Log non-existing user data (if necessary)
+      _ <- logMissingUsers(userIDList, userInfoResults)
+      
+      // Step 4: Collect results, ensuring input order is preserved
+      result = userInfoResults.flatten
+      _ <- IO(logger.info(s"成功收集查询结果的安全用户信息总数为: ${result.size}"))
+    } yield result
   }
 
   /**
-   * Fetch user information for each userID
-   *
-   * @param userIDList List of user IDs
-   * @return List containing optional SafeUserInfo for each userID
+   * Sub-function to fetch user info list while preserving input order.
    */
-  private def fetchAllSafeUserInfo(userIDList: List[Int])(using PlanContext): IO[List[Option[SafeUserInfo]]] = {
-    IO(logger.info(s"[QuerySafeUserInfo] 开始批量调用 fetchSafeUserInfoByID 方法查询用户信息")) >>
-      userIDList.traverse { userID =>
-        fetchSafeUserInfoByID(userID).handleErrorWith { error =>
-          IO {
-            logger.error(s"[QuerySafeUserInfo] 查询用户ID ${userID} 的信息时出错: ${error.getMessage}")
-            None
-          }
-        }
-      }
+  private def fetchSafeUserInfoList(userIDList: List[Int])(using PlanContext): IO[List[Option[SafeUserInfo]]] = {
+    userIDList.traverse(fetchSafeUserInfoByID)
   }
 
   /**
-   * Sort results based on the input userID list order
-   *
-   * @param fetchedResults List of optional user information fetched from the database
-   * @param userIDList Original input userID list
-   * @return Sorted list of SafeUserInfo matching the input order
+   * Sub-function to log missing users whose information couldn't be found.
    */
-  private def sortResults(fetchedResults: List[Option[SafeUserInfo]], userIDList: List[Int]): List[SafeUserInfo] = {
-    val resultMap = fetchedResults.flatten.map(safeUserInfo => safeUserInfo.userID -> safeUserInfo).toMap
-
-    userIDList.map { userID =>
-      resultMap.getOrElse(userID, {
-        logger.warn(s"[QuerySafeUserInfo] 用户ID ${userID} 不存在，未包含在返回的SafeUserInfo中")
-        throw new IllegalStateException(s"SafeUserInfo for userID [${userID}] not found.")
-      })
+  private def logMissingUsers(userIDList: List[Int], userInfoResults: List[Option[SafeUserInfo]])(using PlanContext): IO[Unit] = {
+    val missingUserIDs = userIDList.zip(userInfoResults).collect {
+      case (userID, None) => userID
+    }
+    if (missingUserIDs.nonEmpty) {
+      IO(logger.warn(s"以下用户ID的安全信息无法找到: ${missingUserIDs.mkString(", ")}"))
+    } else {
+      IO.unit
     }
   }
 }
