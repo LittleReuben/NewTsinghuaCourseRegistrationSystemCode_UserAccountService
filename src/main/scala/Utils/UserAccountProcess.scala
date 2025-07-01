@@ -26,6 +26,7 @@ import Utils.UserAccountProcess.fetchSafeUserInfoByID
 import Objects.SystemLogService.SystemLogEntry
 import Utils.UserAccountProcess.fetchUserInfoByToken
 import Common.DBAPI.{readDBJsonOptional, decodeField, SqlParameter}
+import Common.DBAPI.{readDBJsonOptional, decodeField}
 
 case object UserAccountProcess {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -337,7 +338,6 @@ case object UserAccountProcess {
     } yield "日志记录成功！"
   }
   
-  
   def validateAccountNameUniqueness(accountName: String)(using PlanContext): IO[Boolean] = {
   // val logger = LoggerFactory.getLogger(getClass) // 声明 Logger  // 同文后端处理: logger 统一
   
@@ -366,4 +366,6 @@ case object UserAccountProcess {
         IO.pure(true)
     }
   }
+  
+  // 原代码问题: value SqlParameter is not a member of Common.DBAPI 是因为代码中自定义的 SqlParameter 类所在路径不正确. 使用 Common.Object.SqlParameter 可以解决编译错误问题.
 }
