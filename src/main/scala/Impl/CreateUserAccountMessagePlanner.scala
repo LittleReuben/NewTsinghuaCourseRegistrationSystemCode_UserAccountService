@@ -1,6 +1,5 @@
 package Impl
 
-
 import Objects.UserAccountService.UserInfo
 import Utils.UserAccountProcess.fetchSafeUserInfoByID
 import Utils.UserAccountProcess.validateAdminToken
@@ -18,21 +17,9 @@ import org.joda.time.DateTime
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
-import cats.implicits.*
-import io.circe._
-import io.circe.syntax._
-import io.circe.generic.auto._
-import org.joda.time.DateTime
-import cats.implicits.*
-import Common.DBAPI._
-import Common.API.{PlanContext, Planner}
-import cats.effect.IO
-import Common.Object.SqlParameter
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
-import Common.ServiceUtils.schemaName
+import cats.implicits._
+import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
 import Utils.UserAccountProcess.fetchUserInfoByToken
-import Objects.UserAccountService.SafeUserInfo
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Objects.UserAccountService.SafeUserInfo
 
 case class CreateUserAccountMessagePlanner(
@@ -83,17 +70,18 @@ case class CreateUserAccountMessagePlanner(
       password: String,
       role: UserRole
   )(using PlanContext): IO[Int] = {
-    for {
-      sql = s"""
+    val sql =
+      s"""
           INSERT INTO ${schemaName}.user_account_table (user_name, account_name, password, role)
           VALUES (?, ?, ?, ?) RETURNING user_id
         """
-      parameters = List(
-        SqlParameter("String", name),
-        SqlParameter("String", accountName),
-        SqlParameter("String", password), // Password 的加密应在调用前完成
-        SqlParameter("String", role.toString)
-      )
+    val parameters = List(
+      SqlParameter("String", name),
+      SqlParameter("String", accountName),
+      SqlParameter("String", password), // Password 的加密应在调用前完成
+      SqlParameter("String", role.toString)
+    )
+    for {
       _ <- IO(logger.info(s"执行新增用户记录的 SQL: ${sql}"))
       newUserID <- readDBInt(sql, parameters)
       _ <- IO(logger.info(s"用户记录创建成功，生成 UserID: ${newUserID}"))
