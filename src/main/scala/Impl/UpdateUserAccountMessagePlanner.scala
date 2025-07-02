@@ -1,6 +1,5 @@
 package Impl
 
-
 import Objects.UserAccountService.UserInfo
 import Objects.UserAccountService.SafeUserInfo
 import Objects.UserAccountService.UserRole
@@ -20,22 +19,8 @@ import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
 import org.joda.time.DateTime
-import cats.implicits.*
-import io.circe._
-import io.circe.syntax._
-import io.circe.generic.auto._
-import org.joda.time.DateTime
-import cats.implicits.*
-import Common.DBAPI._
-import Common.API.{PlanContext, Planner}
-import cats.effect.IO
-import Common.Object.SqlParameter
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
-import Common.ServiceUtils.schemaName
-import Utils.UserAccountProcess.fetchUserInfoByToken
-import Objects.SystemLogService.SystemLogEntry
-import Utils.UserAccountProcess.fetchUserInfoByID
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
+import cats.implicits._
+import java.security.MessageDigest
 
 case class UpdateUserAccountMessagePlanner(
   adminToken: String,
@@ -64,7 +49,7 @@ case class UpdateUserAccountMessagePlanner(
       }
       _ <- IO(logger.info(s"目标用户信息查询成功: ${userInfo}"))
 
-      // Step 3: 验证 newAccountName 是否唯一（如有）
+      // Step 3: 验证newAccountName是否唯一（如有）
       _ <- newAccountName match {
         case Some(accountName) =>
           validateAccountNameUniqueness(accountName).flatMap {
@@ -78,11 +63,22 @@ case class UpdateUserAccountMessagePlanner(
       }
 
       // Step 4: 更新用户信息至数据库
+      // 如果传入新密码，将其加密
+      hashedNewPassword <- newPassword match {
+        case Some(password) =>
+          IO {
+            val digestedBytes = MessageDigest.getInstance("SHA-256")
+              .digest(password.getBytes("UTF-8"))
+            digestedBytes.map("%02x".format(_)).mkString
+          }
+        case None => IO.pure(userInfo.password)
+      }
+
       updateFields <- IO {
         List(
           newName.map(name => "user_name" -> name),
           newAccountName.map(accountName => "account_name" -> accountName),
-          newPassword.map(password => "password" -> password)
+          newPassword.map(_ => "password" -> hashedNewPassword)
         ).flatten
       }
 
@@ -116,7 +112,7 @@ case class UpdateUserAccountMessagePlanner(
       updatedSafeUserInfo <- fetchSafeUserInfoByID(userID)
       updatedUserInfo <- updatedSafeUserInfo match {
         case Some(info) =>
-          IO(UserInfo(info.userID, info.userName, info.accountName, newPassword.getOrElse(userInfo.password), info.role))
+          IO(UserInfo(info.userID, info.userName, info.accountName, hashedNewPassword, info.role))
         case None => IO.raiseError(new IllegalStateException("更新后的用户信息查询失败"))
       }
       _ <- IO(logger.info(s"更新后的用户信息: ${updatedUserInfo}"))

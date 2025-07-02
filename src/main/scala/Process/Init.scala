@@ -1,13 +1,14 @@
-
 package Process
 
 import Common.API.{API, PlanContext, TraceID}
-import Common.DBAPI.{initSchema, writeDB}
+import Common.DBAPI.{initSchema, writeDB, readDBInt}
 import Common.ServiceUtils.schemaName
+import Common.Object.SqlParameter
 import Global.ServerConfig
 import cats.effect.IO
 import io.circe.generic.auto.*
 import java.util.UUID
+import java.security.MessageDigest
 import Global.DBConfig
 import Process.ProcessUtils.server2DB
 import Global.GlobalVariables
@@ -22,7 +23,7 @@ object Init {
       _ <- API.init(config.maximumClientConnection)
       _ <- Common.DBAPI.SwitchDataSourceMessage(projectName = Global.ServiceCenter.projectName).send
       _ <- initSchema(schemaName)
-            /** 用户账户表，包含用户的基本账号信息
+      /** 用户账户表，包含用户的基本账号信息
        * user_id: 用户的唯一ID，主键，自动递增
        * user_name: 用户名字
        * account_name: 用户账号名，唯一
@@ -38,10 +39,41 @@ object Init {
             password TEXT NOT NULL,
             role TEXT NOT NULL
         );
-         
         """,
         List()
       )
+
+      // 🔽 新增：检查是否已有admin角色用户
+      adminCount <- readDBInt(
+        s"""
+        SELECT COUNT(*) FROM "${schemaName}"."user_account_table"
+        WHERE role = 'admin';
+        """,
+        List()
+      )
+
+      // 🔽 如果没有admin用户，插入默认管理员账户
+      _ <- if adminCount == 0 then
+        val rawPassword = "admin"
+        val hashedPassword = MessageDigest.getInstance("SHA-256")
+          .digest(rawPassword.getBytes("UTF-8"))
+          .map("%02x".format(_)).mkString
+
+        writeDB(
+          s"""
+          INSERT INTO "${schemaName}"."user_account_table"
+            (user_name, account_name, password, role)
+          VALUES (?, ?, ?, ?);
+          """,
+          List(
+            SqlParameter("String", "admin"),
+            SqlParameter("String", "Administrator"),
+            SqlParameter("String", hashedPassword),
+            SqlParameter("String", "admin")
+          )
+        )
+      else IO.unit
+
     } yield ()
 
     program.handleErrorWith(err => IO {
@@ -50,4 +82,3 @@ object Init {
     })
   }
 }
-    
