@@ -110,7 +110,7 @@ case object UserAccountProcess {
     // 第一步：验证用户的token是否有效
     val tokenValidationSQL =
       s"""
-        SELECT token_id, user_id, expiry_date
+        SELECT user_id, expiry_date
         FROM ${schemaName}.user_token_table
         WHERE token = ?;
       """
