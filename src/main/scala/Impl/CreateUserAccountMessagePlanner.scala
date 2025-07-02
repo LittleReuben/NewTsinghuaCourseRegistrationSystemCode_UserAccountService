@@ -52,7 +52,7 @@ case class CreateUserAccountMessagePlanner(
 
       // Step 3: 创建新的用户记录
       _ <- IO(logger.info(s"准备在数据库中创建用户记录。name: ${name}, accountName: ${accountName}, role: ${role.toString}"))
-      generatedUserID <- createUserAccountInDB(name, accountName, password, role)
+      generatedUserID <- createUserAccountInDB(name, accountName, java.security.MessageDigest.getInstance("SHA-256").digest(password.getBytes("UTF-8")).map("%02x".format(_)).mkString, role)
 
       // Step 4: 记录日志
       _ <- IO(logger.info(s"记录用户创建操作日志, targetUserID: ${generatedUserID}"))
