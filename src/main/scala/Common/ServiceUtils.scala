@@ -40,5 +40,5 @@ object ServiceUtils{
   lazy val servicePort: Int = portMap(serviceCode)
   lazy val serviceFullName: String = fullNameMap(serviceCode)
   lazy val serviceShortName: String = serviceName(serviceCode)
-  lazy val schemaName: String = "NewTsinghuaCourseRegistrationSystem"
+  lazy val schemaName: String = "userauthservice"
 }

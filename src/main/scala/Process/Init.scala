@@ -66,8 +66,8 @@ object Init {
           VALUES (?, ?, ?, ?);
           """,
           List(
-            SqlParameter("String", "admin"),
             SqlParameter("String", "Administrator"),
+            SqlParameter("String", "admin"),
             SqlParameter("String", hashedPassword),
             SqlParameter("String", "admin")
           )

@@ -76,7 +76,7 @@ case object UserAccountProcess {
       
       // Step2: Fetch user basic info from database
       _ <- IO(logger.info(s"用户token有效，准备从数据库中查询用户基本信息"))
-      query <- IO(s"SELECT user_id, user_name, account_name, role FROM ${schemaName}.user_account WHERE token = ?")
+      query <- IO(s"SELECT user_id, user_name, account_name, role FROM ${schemaName}.user_account_table WHERE token = ?")
       parameters <- IO(List(SqlParameter("String", userToken)))
       userInfoJsonOptional <- readDBJsonOptional(query, parameters)
       _ <- IO(logger.info(s"数据查询完成，${userInfoJsonOptional.fold("未查询到用户信息")(info => s"获取到用户信息: ${info}")}"))
