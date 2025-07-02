@@ -282,7 +282,7 @@ case object UserAccountProcess {
       targetUserID: Int,
       details: String
   )(using PlanContext): IO[String] = {
-    val validOperations = List("增加", "修改") // 预定义的操作类型
+    val validOperations = List("增加", "修改", "使登录token失效") // 预定义的操作类型
   // val logger = LoggerFactory.getLogger("recordUserAccountOperationLog")  // 同文后端处理: logger 统一
   
     // 步骤1: 参数校验
