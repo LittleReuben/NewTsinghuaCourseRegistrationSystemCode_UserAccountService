@@ -327,7 +327,7 @@ case object UserAccountProcess {
       // 步骤4: 插入数据库
       insertSQL <- IO {
         s"""
-           INSERT INTO ${schemaName}.system_log_entry (timestamp, user_id, action, details)
+           INSERT INTO ${schemaName}.system_log_table (timestamp, user_id, action, details)
            VALUES (?, ?, ?, ?)
         """.stripMargin
       }
