@@ -161,7 +161,6 @@ case object UserAccountProcess {
       }
     } yield userInfo
   }
-  
   def invalidateUserToken(userID: Int)(using PlanContext): IO[String] = {
   // val logger = LoggerFactory.getLogger("InvalidateUserTokenLogger")  // 同文后端处理: logger 统一
   
@@ -179,18 +178,17 @@ case object UserAccountProcess {
   
       // Step 2: 使用户登录token失效
       _ <- IO(logger.info(s"[invalidateUserToken] 使用户登录token失效，用户ID: ${userID}"))
-      invalidateSql <- IO {
+      deleteSql <- IO {
         s"""
-          UPDATE ${schemaName}.user_token_table
-          SET token_status = 'INVALID'
+          DELETE FROM ${schemaName}.user_token_table
           WHERE user_id = ?;
         """
       }
-      invalidateParams <- IO {
+      deleteParams <- IO {
         List(SqlParameter("Int", userID.toString))
       }
-      updateResult <- writeDB(invalidateSql, invalidateParams)
-      _ <- IO(logger.info(s"[invalidateUserToken] 登录token已失效，用户ID: ${userID}, 数据库更新结果: ${updateResult}"))
+      deleteResult <- writeDB(deleteSql, deleteParams)
+      _ <- IO(logger.info(s"[invalidateUserToken] 登录token已删除，用户ID: ${userID}, 数据库操作结果: ${deleteResult}"))
   
       // Step 3: 记录操作日志
       logDetails <- IO(s"用户信息更新，失效登录token")
