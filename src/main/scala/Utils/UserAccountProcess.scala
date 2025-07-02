@@ -70,17 +70,29 @@ case object UserAccountProcess {
       _ <- IO(logger.info(s"开始验证用户token的有效性: ${userToken}"))
       isValidToken <- VerifyTokenValidityMessage(userToken).send
       _ <- if (!isValidToken) {
-        IO(logger.info(s"用户token无效: ${userToken}")) >>
+        IO(logger.info(s"用户token无效: ${userToken}"))
         IO.pure(None)
       } else IO.unit
-      
-      // Step2: Fetch user basic info from database
-      _ <- IO(logger.info(s"用户token有效，准备从数据库中查询用户基本信息"))
-      query <- IO(s"SELECT user_id, user_name, account_name, role FROM ${schemaName}.user_account_table WHERE token = ?")
-      parameters <- IO(List(SqlParameter("String", userToken)))
-      userInfoJsonOptional <- readDBJsonOptional(query, parameters)
-      _ <- IO(logger.info(s"数据查询完成，${userInfoJsonOptional.fold("未查询到用户信息")(info => s"获取到用户信息: ${info}")}"))
-      
+  
+      // Step2: Fetch user_id from user_token_table
+      _ <- IO(logger.info(s"用户token有效，准备从user_token_table中查询user_id"))
+      userIDOptional <- readDBJsonOptional(
+        s"SELECT user_id FROM ${schemaName}.user_token_table WHERE token = ?",
+        List(SqlParameter("String", userToken))
+      )
+      _ <- IO(logger.info(s"user_token_table查询结果: ${userIDOptional.fold("未查询到user_id")(info => s"获取到user_id: ${decodeField[Int](info, "user_id")}")}"))
+  
+      // Step3: Fetch user basic info from user_account_table
+      userInfoJsonOptional <- if (userIDOptional.isDefined) {
+        val userID = decodeField[Int](userIDOptional.get, "user_id")
+        IO(logger.info(s"准备从user_account_table中查询用户基本信息，user_id: ${userID}")) >>
+        readDBJsonOptional(
+          s"SELECT user_id, user_name, account_name, role FROM ${schemaName}.user_account_table WHERE user_id = ?",
+          List(SqlParameter("Int", userID.toString))
+        )
+      } else IO.pure(None)
+      _ <- IO(logger.info(s"user_account_table查询结果: ${userInfoJsonOptional.fold("未查询到用户信息")(info => s"获取到用户信息: ${info}")}"))
+  
     } yield userInfoJsonOptional.map { json =>
       SafeUserInfo(
         userID = decodeField[Int](json, "user_id"),
