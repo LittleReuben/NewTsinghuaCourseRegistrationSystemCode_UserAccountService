@@ -110,7 +110,7 @@ case object UserAccountProcess {
     // 第一步：验证用户的token是否有效
     val tokenValidationSQL =
       s"""
-        SELECT user_id, expiry_date
+        SELECT user_id
         FROM ${schemaName}.user_token_table
         WHERE token = ?;
       """
@@ -122,45 +122,38 @@ case object UserAccountProcess {
       tokenQueryResult <- readDBJsonOptional(tokenValidationSQL, tokenParams)
       userInfo <- tokenQueryResult match {
         case Some(token) =>
-          val expiryDate = decodeField[DateTime](token, "expiry_date")
           val userID = decodeField[Int](token, "user_id")
+          logger.info(s"Token验证成功，关联用户ID: ${userID}")
+  
+          // 第二步：通过用户ID查询用户信息
+          val userInfoSQL =
+            s"""
+              SELECT user_id, user_name, account_name, password, role
+              FROM ${schemaName}.user_account_table
+              WHERE user_id = ?;
+            """
+          val userParams = List(SqlParameter("Int", userID.toString))
           
-          if (expiryDate.isBefore(DateTime.now())) {
-            logger.info(s"Token已过期，expiryDate: ${expiryDate}")
-            IO.pure(None)
-          } else {
-            logger.info(s"Token验证成功，关联用户ID: ${userID}")
+          logger.info(s"准备查询用户信息的SQL: ${userInfoSQL}")
   
-            // 第二步：通过用户ID查询用户信息
-            val userInfoSQL =
-              s"""
-                SELECT user_id, user_name, account_name, password, role
-                FROM ${schemaName}.user_account_table
-                WHERE user_id = ?;
-              """
-            val userParams = List(SqlParameter("Int", userID.toString))
-            
-            logger.info(s"准备查询用户信息的SQL: ${userInfoSQL}")
-  
-            for {
-              userQueryResult <- readDBJsonOptional(userInfoSQL, userParams)
-              fullUserInfo <- userQueryResult match {
-                case Some(userRow) =>
-                  val userInfo = UserInfo(
-                    userID = decodeField[Int](userRow, "user_id"),
-                    userName = decodeField[String](userRow, "user_name"),
-                    accountName = decodeField[String](userRow, "account_name"),
-                    password = decodeField[String](userRow, "password"),
-                    role = UserRole.fromString(decodeField[String](userRow, "role"))
-                  )
-                  logger.info(s"成功获取到用户信息: ${userInfo}")
-                  IO.pure(Some(userInfo))
-                case None =>
-                  logger.info(s"未找到对应的用户信息，用户ID: ${userID}")
-                  IO.pure(None)
-              }
-            } yield fullUserInfo
-          }
+          for {
+            userQueryResult <- readDBJsonOptional(userInfoSQL, userParams)
+            fullUserInfo <- userQueryResult match {
+              case Some(userRow) =>
+                val userInfo = UserInfo(
+                  userID = decodeField[Int](userRow, "user_id"),
+                  userName = decodeField[String](userRow, "user_name"),
+                  accountName = decodeField[String](userRow, "account_name"),
+                  password = decodeField[String](userRow, "password"),
+                  role = UserRole.fromString(decodeField[String](userRow, "role"))
+                )
+                logger.info(s"成功获取到用户信息: ${userInfo}")
+                IO.pure(Some(userInfo))
+              case None =>
+                logger.info(s"未找到对应的用户信息，用户ID: ${userID}")
+                IO.pure(None)
+            }
+          } yield fullUserInfo
   
         case None =>
           logger.info(s"Token ${userToken} 无效或未找到对应的记录")
