@@ -103,6 +103,54 @@ case object UserAccountProcess {
     }
   }
   
+  def fetchUserInfoByID(userID: Int)(using PlanContext): IO[Option[UserInfo]] = {
+  // val logger = LoggerFactory.getLogger(getClass)  // 同文后端处理: logger 统一
+    logger.info(s"[fetchUserInfoByID] 根据用户ID[${userID}]查询用户信息")
+  
+    val sqlQuery = s"""
+      SELECT user_id, user_name, account_name, password, role
+      FROM ${schemaName}.user_account_table
+      WHERE user_id = ?;
+      """
+    logger.info(s"[fetchUserInfoByID] 执行的SQL语句: ${sqlQuery}")
+  
+    readDBJsonOptional(
+      sqlQuery,
+      List(SqlParameter("Int", userID.toString))
+    ).map {
+      case Some(json) =>
+        logger.info(s"[fetchUserInfoByID] 查询到的用户记录: ${json.noSpaces}")
+        
+        try {
+          val userID = decodeField[Int](json, "user_id")
+          val userName = decodeField[String](json, "user_name")
+          val accountName = decodeField[String](json, "account_name")
+          val password = decodeField[String](json, "password")
+          val roleString = decodeField[String](json, "role")
+          val userRole = UserRole.fromString(roleString)
+  
+          val userInfo = UserInfo(
+            userID = userID,
+            userName = userName,
+            accountName = accountName,
+            password = password,
+            role = userRole
+          )
+  
+          logger.info(s"[fetchUserInfoByID] 构造的UserInfo对象: ${userInfo}")
+          Some(userInfo)
+        } catch {
+          case e: Exception =>
+            logger.error(s"[fetchUserInfoByID] 构造UserInfo对象时出现错误: ${e.getMessage}")
+            None
+        }
+  
+      case None =>
+        logger.info(s"[fetchUserInfoByID] 未找到用户信息，返回None")
+        None
+    }
+  }
+  
   def fetchUserInfoByToken(userToken: String)(using PlanContext): IO[Option[UserInfo]] = {
   // val logger = LoggerFactory.getLogger("fetchUserInfoByToken")  // 同文后端处理: logger 统一
     logger.info(s"开始执行fetchUserInfoByToken，传入的用户 token: ${userToken}")
@@ -202,87 +250,12 @@ case object UserAccountProcess {
     } yield result
   }
   
-  def validateAdminToken(adminToken: String)(using PlanContext): IO[Boolean] = {
-  // val logger = LoggerFactory.getLogger("validateAdminToken")  // 同文后端处理: logger 统一
-    logger.info(s"开始验证管理员Token，传入的adminToken: ${adminToken}")
-  
-    for {
-      // Step 1: 获取用户信息
-      userInfoOpt <- fetchUserInfoByToken(adminToken)
-      _ <- IO(logger.info(s"fetchUserInfoByToken 返回结果: ${userInfoOpt.map(_.toString).getOrElse("None")}"))
-  
-      // Step 2: 验证用户信息是否存在及其角色
-      isValid <- userInfoOpt match {
-        case Some(userInfo) =>
-          logger.info(s"获得了用户信息，用户角色是: ${userInfo.role.toString}")
-          if (userInfo.role == UserRole.SuperAdmin) {
-            logger.info("用户角色验证通过，该用户是超级管理员")
-            IO.pure(true)
-          } else {
-            logger.info("用户角色验证失败，该用户不是超级管理员")
-            IO.pure(false)
-          }
-        case None =>
-          logger.info("未找到对应的用户信息或Token无效")
-          IO.pure(false)
-      }
-    } yield isValid
-  }
-  
-  def fetchUserInfoByID(userID: Int)(using PlanContext): IO[Option[UserInfo]] = {
-  // val logger = LoggerFactory.getLogger(getClass)  // 同文后端处理: logger 统一
-    logger.info(s"[fetchUserInfoByID] 根据用户ID[${userID}]查询用户信息")
-  
-    val sqlQuery = s"""
-      SELECT user_id, user_name, account_name, password, role
-      FROM ${schemaName}.user_account_table
-      WHERE user_id = ?;
-      """
-    logger.info(s"[fetchUserInfoByID] 执行的SQL语句: ${sqlQuery}")
-  
-    readDBJsonOptional(
-      sqlQuery,
-      List(SqlParameter("Int", userID.toString))
-    ).map {
-      case Some(json) =>
-        logger.info(s"[fetchUserInfoByID] 查询到的用户记录: ${json.noSpaces}")
-        
-        try {
-          val userID = decodeField[Int](json, "user_id")
-          val userName = decodeField[String](json, "user_name")
-          val accountName = decodeField[String](json, "account_name")
-          val password = decodeField[String](json, "password")
-          val roleString = decodeField[String](json, "role")
-          val userRole = UserRole.fromString(roleString)
-  
-          val userInfo = UserInfo(
-            userID = userID,
-            userName = userName,
-            accountName = accountName,
-            password = password,
-            role = userRole
-          )
-  
-          logger.info(s"[fetchUserInfoByID] 构造的UserInfo对象: ${userInfo}")
-          Some(userInfo)
-        } catch {
-          case e: Exception =>
-            logger.error(s"[fetchUserInfoByID] 构造UserInfo对象时出现错误: ${e.getMessage}")
-            None
-        }
-  
-      case None =>
-        logger.info(s"[fetchUserInfoByID] 未找到用户信息，返回None")
-        None
-    }
-  }
-  
   def recordUserAccountOperationLog(
       operation: String,
       targetUserID: Int,
       details: String
   )(using PlanContext): IO[String] = {
-    val validOperations = List("增加", "修改", "使登录token失效") // 预定义的操作类型
+    val validOperations = List("管理员增加账号", "管理员修改账号", "管理员使登录token失效") // 预定义的操作类型
   // val logger = LoggerFactory.getLogger("recordUserAccountOperationLog")  // 同文后端处理: logger 统一
   
     // 步骤1: 参数校验
@@ -373,4 +346,31 @@ case object UserAccountProcess {
   }
   
   // 原代码问题: value SqlParameter is not a member of Common.DBAPI 是因为代码中自定义的 SqlParameter 类所在路径不正确. 使用 Common.Object.SqlParameter 可以解决编译错误问题.
+  
+  def validateAdminToken(adminToken: String)(using PlanContext): IO[Boolean] = {
+  // val logger = LoggerFactory.getLogger("validateAdminToken")  // 同文后端处理: logger 统一
+    logger.info(s"开始验证管理员Token，传入的adminToken: ${adminToken}")
+  
+    for {
+      // Step 1: 获取用户信息
+      userInfoOpt <- fetchUserInfoByToken(adminToken)
+      _ <- IO(logger.info(s"fetchUserInfoByToken 返回结果: ${userInfoOpt.map(_.toString).getOrElse("None")}"))
+  
+      // Step 2: 验证用户信息是否存在及其角色
+      isValid <- userInfoOpt match {
+        case Some(userInfo) =>
+          logger.info(s"获得了用户信息，用户角色是: ${userInfo.role.toString}")
+          if (userInfo.role == UserRole.SuperAdmin) {
+            logger.info("用户角色验证通过，该用户是超级管理员")
+            IO.pure(true)
+          } else {
+            logger.info("用户角色验证失败，该用户不是超级管理员")
+            IO.pure(false)
+          }
+        case None =>
+          logger.info("未找到对应的用户信息或Token无效")
+          IO.pure(false)
+      }
+    } yield isValid
+  }
 }
