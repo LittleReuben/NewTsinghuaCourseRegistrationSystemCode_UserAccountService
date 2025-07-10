@@ -240,9 +240,9 @@ case object UserAccountProcess {
   
       // Step 3: 记录操作日志
       logDetails <- IO(s"用户信息更新，失效登录token")
-      _ <- IO(logger.info(s"[invalidateUserToken] 准备记录操作日志: 操作=使登录token失效, 用户ID=${userID}, 详情=${logDetails}"))
-      logResult <- recordUserAccountOperationLog("管理员使登录token失效", userID, logDetails)
-      _ <- IO(logger.info(s"[invalidateUserToken] 操作日志记录完成，结果: ${logResult}"))
+      // _ <- IO(logger.info(s"[invalidateUserToken] 准备记录操作日志: 操作=使登录token失效, 用户ID=${userID}, 详情=${logDetails}"))
+      // logResult <- recordUserAccountOperationLog("管理员使登录token失效", userID, logDetails)
+      // _ <- IO(logger.info(s"[invalidateUserToken] 操作日志记录完成，结果: ${logResult}"))
   
       // Step 4: 返回操作结果
       result <- IO("登出成功!")
