@@ -105,7 +105,7 @@ case class UpdateUserAccountMessagePlanner(
 
       // Step 6: 记录操作日志
       logDetails <- IO(s"更新字段: ${updateFields.map { case (field, value) => s"${field}=${value}" }.mkString(", ")}")
-      logResult <- recordUserAccountOperationLog("修改", userID, logDetails)
+      logResult <- recordUserAccountOperationLog("管理员修改账号", userID, logDetails)
       _ <- IO(logger.info(s"操作日志记录完成，结果: ${logResult}"))
 
       // Step 7: 查询更新后的用户信息
