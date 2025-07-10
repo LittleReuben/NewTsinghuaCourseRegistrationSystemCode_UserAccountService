@@ -56,7 +56,7 @@ case class CreateUserAccountMessagePlanner(
 
       // Step 4: 记录日志
       _ <- IO(logger.info(s"记录用户创建操作日志, targetUserID: ${generatedUserID}"))
-      _ <- recordUserAccountOperationLog("增加", generatedUserID, s"新增用户，AccountName: ${accountName}, Role: ${role.toString}")
+      _ <- recordUserAccountOperationLog("管理员增加账号", generatedUserID, s"新增用户，AccountName: ${accountName}, Role: ${role.toString}")
 
       // Step 5: 构造返回的 UserInfo
       _ <- IO(logger.info(s"通过生成的用户ID(${generatedUserID})获取完整用户信息。"))
